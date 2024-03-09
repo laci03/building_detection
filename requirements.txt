@@ -9,3 +9,4 @@ ipywidgets
 pandas
 matplotlib
 opencv-python
+tqdm
