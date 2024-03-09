@@ -1,0 +1,11 @@
+shapely
+rasterio
+torch
+torchvision
+torchaudio
+scipy
+jupyterlab
+ipywidgets
+pandas
+matplotlib
+opencv-python
