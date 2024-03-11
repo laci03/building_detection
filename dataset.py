@@ -13,7 +13,7 @@ from torch.utils.data import Dataset
 
 class ChangeDetectionDataset(Dataset):
     def __init__(self, dataset_path, masks_path, df_path,
-                 no_of_crops_per_combination, training_mode=True, crop_size=None):
+                 no_of_crops_per_combination=1, training_mode=True, crop_size=None):
         self.dataset_path = Path(dataset_path)
         self.masks_path = Path(masks_path)
 
@@ -55,7 +55,7 @@ class ChangeDetectionDataset(Dataset):
 
                 image = r.transpose((1, 2, 0))[:, :, :-1]
 
-                mask = cv2.imread(str(mask_path), 0)
+                mask = np.bool_(cv2.imread(str(mask_path), 0))
 
                 images.append((file_name, image, mask))
 
@@ -93,13 +93,13 @@ class ChangeDetectionDataset(Dataset):
             mask_2 = mask_2[x:x + self.crop_size, y:y + self.crop_size, :]
             change = change[x:x + self.crop_size, y:y + self.crop_size, :]
 
-        image_1 = torch.from_numpy(image_1.transpose((2, 0, 1)) / 255.0)
-        image_2 = torch.from_numpy(image_2.transpose((2, 0, 1)) / 255.0)
+        image_1 = torch.from_numpy(np.array(image_1.transpose((2, 0, 1)), dtype=np.float32) / 255.0)
+        image_2 = torch.from_numpy(np.array(image_2.transpose((2, 0, 1)), dtype=np.float32) / 255.0)
 
-        mask_1 = torch.from_numpy((mask_1 * 1.0).transpose((2, 0, 1)))
-        mask_2 = torch.from_numpy((mask_2 * 1.0).transpose((2, 0, 1)))
+        mask_1 = torch.from_numpy(np.array(mask_1.transpose((2, 0, 1)), dtype=np.float32))
+        mask_2 = torch.from_numpy(np.array(mask_2.transpose((2, 0, 1)), dtype=np.float32))
 
-        change = torch.from_numpy(change.transpose((2, 0, 1)) * 1.0)
+        change = torch.from_numpy(np.array(change.transpose((2, 0, 1)), dtype=np.float32))
         return image_1, image_2, mask_1, mask_2, change
 
     def __len__(self):
