@@ -13,14 +13,11 @@ from torch.utils.data import Dataset
 
 class ChangeDetectionDataset(Dataset):
     def __init__(self, dataset_path, masks_path, df_path,
-                 no_of_crops_per_combination=1, training_mode=True, crop_size=None):
+                 no_of_crops_per_combination=1, training_mode=True, crop_size=None, return_masks=False):
         self.dataset_path = Path(dataset_path)
         self.masks_path = Path(masks_path)
 
         self.df = pd.read_csv(df_path, index_col=0)
-
-        # read all dataset into memory
-        self.image_and_mask_dict = self.get_image_and_mask()
 
         self.no_of_crops_per_combination = no_of_crops_per_combination
 
@@ -28,49 +25,44 @@ class ChangeDetectionDataset(Dataset):
 
         self.combinations_list = self.create_combinations()
         self.crop_size = crop_size
+        self.return_masks = return_masks
 
     def create_combinations(self):
         combinations = []
 
-        for aoi_name, file_list in sorted(self.image_and_mask_dict.items()):
+        for aoi_name in list(set(self.df['AOI_name'])):
+            file_list = sorted(list(set(self.df[self.df['AOI_name'] == aoi_name]['filename'])))
             for i in range(len(file_list[:-1])):
                 for j in range(i+1, len(file_list)):
-                    combinations.append((aoi_name, i, j))
+                    combinations.append((aoi_name, file_list[i], file_list[j]))
 
         return combinations
 
-    def get_image_and_mask(self):
-        AOI_names = list(set(self.df['AOI_name']))
-        image_and_mask_dict = {}
+    def get_image_and_mask(self, AOI_name, file_name):
+        image_path = self.dataset_path / AOI_name / 'images_masked' / '{}.tif'.format(file_name)
+        mask_path = self.masks_path / AOI_name / '{}.png'.format(file_name)
 
-        for AOI_name in tqdm(AOI_names):
-            file_names = sorted(list(set(self.df[self.df['AOI_name'] == AOI_name]['filename'])))
-            images = []
+        r = rio.open(image_path).read()
 
-            for file_name in file_names:
-                image_path = self.dataset_path / AOI_name / 'images_masked' / '{}.tif'.format(file_name)
-                mask_path = self.masks_path / AOI_name / '{}.png'.format(file_name)
+        image = r.transpose((1, 2, 0))[:, :, :-1]
 
-                r = rio.open(image_path).read()
+        mask = np.bool_(cv2.imread(str(mask_path), 0))
+        return image, mask
 
-                image = r.transpose((1, 2, 0))[:, :, :-1]
-
-                mask = np.bool_(cv2.imread(str(mask_path), 0))
-
-                images.append((file_name, image, mask))
-
-            image_and_mask_dict[AOI_name] = images
-
-        return image_and_mask_dict
+    @staticmethod
+    def update_mask(mask, img_shape):
+        new_mask = np.zeros((img_shape[0], img_shape[1], 1), dtype=bool)
+        new_mask[:mask.shape[0], :mask.shape[1], :] = mask
+        return new_mask
 
     def __getitem__(self, idx):
         if self.training_mode:
             idx = idx // self.no_of_crops_per_combination
 
-        combination = self.combinations_list[idx]
+        aoi_name, file_name_1, file_name_2 = self.combinations_list[idx]
 
-        file_name_1, image_1, mask_1 = self.image_and_mask_dict[combination[0]][combination[1]]
-        file_name_2, image_2, mask_2 = self.image_and_mask_dict[combination[0]][combination[2]]
+        image_1, mask_1 = self.get_image_and_mask(aoi_name, file_name_1)
+        image_2, mask_2 = self.get_image_and_mask(aoi_name, file_name_2)
 
         udm_mask = np.logical_not(np.logical_or(np.all(image_1 == 0, axis=-1),
                                                 np.all(image_2 == 0, axis=-1)))[:, :, None]
@@ -92,15 +84,36 @@ class ChangeDetectionDataset(Dataset):
             mask_1 = mask_1[x:x + self.crop_size, y:y + self.crop_size, :]
             mask_2 = mask_2[x:x + self.crop_size, y:y + self.crop_size, :]
             change = change[x:x + self.crop_size, y:y + self.crop_size, :]
+        else:
+            height, width = image_1.shape[:-1]
+
+            pad_height = 0
+            pad_width = 0
+            if width % 8:
+                pad_width = 8 - width % 8
+            if height % 8:
+                pad_height = 8 - height % 8
+
+            if pad_width or pad_height:
+                image_1 = cv2.copyMakeBorder(image_1, 0, pad_height, 0, pad_width, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+                image_2 = cv2.copyMakeBorder(image_2, 0, pad_height, 0, pad_width, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+                mask_1 = self.update_mask(mask_1, image_1.shape[:-1])
+
+                mask_2 = self.update_mask(mask_2, image_1.shape[:-1])
+                change = self.update_mask(change, image_1.shape[:-1])
 
         image_1 = torch.from_numpy(np.array(image_1.transpose((2, 0, 1)), dtype=np.float32) / 255.0)
         image_2 = torch.from_numpy(np.array(image_2.transpose((2, 0, 1)), dtype=np.float32) / 255.0)
 
-        mask_1 = torch.from_numpy(np.array(mask_1.transpose((2, 0, 1)), dtype=np.float32))
-        mask_2 = torch.from_numpy(np.array(mask_2.transpose((2, 0, 1)), dtype=np.float32))
-
         change = torch.from_numpy(np.array(change.transpose((2, 0, 1)), dtype=np.float32))
-        return image_1, image_2, mask_1, mask_2, change
+
+        if self.return_masks:
+            mask_1 = torch.from_numpy(np.array(mask_1.transpose((2, 0, 1)), dtype=np.float32))
+            mask_2 = torch.from_numpy(np.array(mask_2.transpose((2, 0, 1)), dtype=np.float32))
+
+            return image_1, image_2, mask_1, mask_2, change
+        else:
+            return image_1, image_2, change
 
     def __len__(self):
         if self.training_mode:
@@ -139,14 +152,15 @@ def visualize_dataset(image_1, image_2, mask_1, mask_2, change, resize_factor=2)
 
 
 if __name__ == '__main__':
-    resize_factor = 1
+    resize_factor = 2
 
     dataset = ChangeDetectionDataset(dataset_path='../change_detection_dataset/SN7_buildings/train',
                                      masks_path='../change_detection_dataset/SN7_masks',
                                      df_path='../change_detection_dataset/dataset_1/valid.csv',
                                      no_of_crops_per_combination=10,
-                                     training_mode=True,
-                                     crop_size=256)
+                                     training_mode=False,
+                                     crop_size=256,
+                                     return_masks=True)
 
     for idx in tqdm(range(len(dataset))):
         ch = visualize_dataset(*dataset[idx], resize_factor=resize_factor)
