@@ -30,7 +30,7 @@ class ChangeDetectionDataset(Dataset):
     def create_combinations(self):
         combinations = []
 
-        for aoi_name in list(set(self.df['AOI_name'])):
+        for aoi_name in sorted(list(set(self.df['AOI_name']))):
             file_list = sorted(list(set(self.df[self.df['AOI_name'] == aoi_name]['filename'])))
             for i in range(len(file_list[:-1])):
                 for j in range(i+1, len(file_list)):
