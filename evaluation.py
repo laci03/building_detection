@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 
 class ChangeDetectionEvaluation:
@@ -79,3 +80,8 @@ class ChangeDetectionEvaluation:
 
     def get_accuracy(self):
         return (self.tp + self.tn) / (self.tp + self.fn + self.tn + self.fp)
+
+    def get_confusion_matrix(self):
+        return np.array([[self.tp.cpu().numpy(), self.fn.cpu().numpy()],
+                         [self.fp.cpu().numpy(), self.tn.cpu().numpy()]])
+
