@@ -9,6 +9,7 @@ import segmentation_models_pytorch as smp
 from pathlib import Path
 
 from dataset import ChangeDetectionDataset
+from visualizations import combine_masks
 
 
 def visualize_results(image_1, image_2, mask_1, mask_2, change, pred, resize_factor=2):
@@ -17,21 +18,16 @@ def visualize_results(image_1, image_2, mask_1, mask_2, change, pred, resize_fac
 
     image = np.hstack([image_1, image_2])
 
-    mask_1 = mask_1.numpy().transpose((1, 2, 0))
-    mask_2 = mask_2.numpy().transpose((1, 2, 0))
+    new_mask = combine_masks(mask_1, mask_2)
+    new_change = combine_masks(change, pred > 0.5)
 
-    mask = np.hstack([mask_1, mask_2])
-
-    change = change.numpy().transpose((1, 2, 0))
-    pred = (pred.numpy().transpose((1, 2, 0)) > 0.5).astype(float)
-
-    dims = (image.shape[1]//resize_factor, image.shape[0]//resize_factor)
-    change_dims = (change.shape[1]//resize_factor, change.shape[0]//resize_factor)
+    dims = (image.shape[1] // resize_factor, image.shape[0] // resize_factor)
+    change_dims = (new_change.shape[1] // resize_factor, new_change.shape[0] // resize_factor)
 
     cv2.imshow('image', cv2.resize(image, dims))
-    cv2.imshow('mask', cv2.resize(mask, dims))
-    cv2.imshow('change', cv2.resize(change, change_dims))
-    cv2.imshow('pred change', cv2.resize(pred, change_dims))
+
+    cv2.imshow('mask', cv2.resize(new_mask, change_dims))
+    cv2.imshow('cd', cv2.resize(new_change, change_dims))
 
     return cv2.waitKey()
 
