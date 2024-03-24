@@ -13,9 +13,11 @@ from torch.utils.data import Dataset
 
 class ChangeDetectionDataset(Dataset):
     def __init__(self, dataset_path, masks_path, df_path,
-                 no_of_crops_per_combination=1, training_mode=True, crop_size=None, return_masks=False):
+                 no_of_crops_per_combination=1, training_mode=True, crop_size=None, return_masks=False, shuffle=False):
         self.dataset_path = Path(dataset_path)
         self.masks_path = Path(masks_path)
+
+        self.shuffle = shuffle
 
         self.df = pd.read_csv(df_path, index_col=0)
 
@@ -24,6 +26,9 @@ class ChangeDetectionDataset(Dataset):
         self.training_mode = training_mode
 
         self.combinations_list = self.create_combinations()
+        if self.shuffle:
+            np.random.shuffle(self.combinations_list)
+
         self.crop_size = crop_size
         self.return_masks = return_masks
 
@@ -160,7 +165,8 @@ if __name__ == '__main__':
                                      no_of_crops_per_combination=10,
                                      training_mode=False,
                                      crop_size=256,
-                                     return_masks=True)
+                                     return_masks=True,
+                                     shuffle=True)
 
     for idx in tqdm(range(len(dataset))):
         ch = visualize_dataset(*dataset[idx], resize_factor=resize_factor)
