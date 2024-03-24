@@ -1,10 +1,11 @@
 import os
 import torch
 import logging
+import time
 
+import numpy as np
 import segmentation_models_pytorch as smp
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 from config import ChangeDetectionConfig
@@ -22,16 +23,18 @@ class ChangeDetectionTrain:
         logging.basicConfig()
         logging.root.setLevel(logging.INFO)
 
-        self.logger.info('Logger was initialized')
+        self.logger.info('The logger initialized successfully')
 
         # init parameters
         self.train_dataloader, self.valid_dataloader = None, None
 
         self.model = None
 
-        self.train_step, self.valid_step = 0, 0
+        self.train_step, self.valid_step, self.start_epoch = 0, 0, 0
 
         self.best_f1, self.best_recall, self.best_precision, self.best_accuracy = 0, 0, 0, 0
+
+        self.batches_to_plot = None
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -56,6 +59,16 @@ class ChangeDetectionTrain:
         # initialize tensorboard
         self.writer = SummaryWriter(self.config['tensorboard_path'])
 
+        self.print_status()
+
+    def print_status(self):
+        self.logger.info('Train batch size: {}'.format(self.config['batch_size']))
+        self.logger.info('Validation batch size: {}'.format(self.config['valid_batch']))
+
+        self.logger.info('No of steps in training: {}'.format(len(self.train_dataloader)))
+        self.logger.info('No of steps in validation: {}'.format(len(self.valid_dataloader)))
+        self.logger.info('Cuda available: {}'.format(torch.cuda.is_available()))
+
     def init_dataloaders(self):
         train_dataset = ChangeDetectionDataset(dataset_path=self.config['dataset_path'],
                                                masks_path=self.config['masks_path'],
@@ -69,7 +82,8 @@ class ChangeDetectionTrain:
                                                masks_path=self.config['masks_path'],
                                                df_path=self.config['valid_df_path'],
                                                training_mode=False,
-                                               return_masks=self.config['return_masks'])
+                                               return_masks=self.config['return_masks'],
+                                               shuffle=True)
 
         self.train_dataloader = DataLoader(train_dataset,
                                            batch_size=self.config['batch_size'],
@@ -81,7 +95,11 @@ class ChangeDetectionTrain:
                                            shuffle=False,
                                            num_workers=self.config['valid_workers'])
 
-        self.logger.info('Finished initialization of dataloaders')
+        self.batches_to_plot = np.random.choice(range(len(self.valid_dataloader)),
+                                                self.config['no_of_batches_to_plot'],
+                                                replace=False)
+
+        self.logger.info('The dataloaders initialized successfully')
 
     def init_model(self):
         self.model = smp.create_model(arch='unet', activation='sigmoid',
@@ -96,7 +114,9 @@ class ChangeDetectionTrain:
         self.model.load_state_dict(checkpoint['model'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
 
-        self.train_step, self.valid_step = checkpoint['train_step'], checkpoint['valid_step']
+        self.train_step, self.valid_step, self.start_epoch = (checkpoint['train_step'],
+                                                              checkpoint['valid_step'],
+                                                              checkpoint['epoch'])
 
         self.best_f1, self.best_recall, self.best_precision, self.best_accuracy = (checkpoint['best_f1'],
                                                                                    checkpoint['best_recall'],
@@ -106,8 +126,8 @@ class ChangeDetectionTrain:
         self.logger.info('Model resumed successfully: {}'.format(self.config['model_path']))
 
     def run(self):
-        for epoch in range(self.config['no_of_epochs']):
-            self.logger.info('Epoch {}/{}'.format(epoch + 1, self.config['no_of_epochs']))
+        for epoch in range(self.start_epoch, self.config['no_of_epochs'], 1):
+            start_time = time.time()
 
             train_loss = self.train()
             valid_loss = self.validate(epoch)
@@ -115,11 +135,16 @@ class ChangeDetectionTrain:
             self.cd_evaluation.update_best()
             self.log_to_tensorboard(train_loss, valid_loss, epoch)
 
-            self.logger.info('train loss: {}, valid loss: {}'.format(train_loss,
-                                                                     valid_loss))
-
             if self.config['save_model']:
                 self.save_model(epoch, train_loss, valid_loss)
+
+            self.logger.info('[{}/{}] train loss: {}, valid loss: {}, elapsed time: {}'.format(epoch + 1,
+                                                                                               self.config[
+                                                                                                   'no_of_epochs'],
+                                                                                               train_loss,
+                                                                                               valid_loss,
+                                                                                               time.time() - start_time))
+
         self.writer.flush()
         self.writer.close()
 
@@ -135,7 +160,7 @@ class ChangeDetectionTrain:
         self.model.train()
         train_loss = 0
 
-        for images_1, images_2, changes in tqdm(self.train_dataloader, desc='Training'):
+        for images_1, images_2, changes in self.train_dataloader:
             images = torch.concat([images_1, images_2], dim=1)
             images = images.to(self.device)
             changes = changes.to(self.device)
@@ -163,7 +188,7 @@ class ChangeDetectionTrain:
         valid_loss = 0
 
         with torch.no_grad():
-            for images_1, images_2, changes in tqdm(self.valid_dataloader, desc='Validation'):
+            for i, (images_1, images_2, changes) in enumerate(self.valid_dataloader):
                 images = torch.concat([images_1, images_2], dim=1)
                 images = images.to(self.device)
                 changes = changes.to(self.device)
@@ -174,16 +199,23 @@ class ChangeDetectionTrain:
                 self.cd_evaluation.update(ground_truth=changes, prediction=outputs)
                 self.writer.add_scalar("Loss_step/valid", loss.item(), self.valid_step)
 
-                self.writer.add_image('confusion_matrix',
-                                      plot_to_image(plot_confusion_matrix(self.cd_evaluation.get_confusion_matrix(),
-                                                                          ['change', 'background'])),
-                                      epoch + 1,
-                                      dataformats='HWC')
-                self.writer.add_image('example_1', combine_masks(changes[0], outputs[0] > 0.5), epoch + 1,
-                                      dataformats='HWC')
+                if i in self.batches_to_plot:
+                    initial_index = np.where(i == self.batches_to_plot)[0][0] * self.config['valid_batch']
+                    for index in range(self.config['valid_batch']):
+                        self.writer.add_image('example_{}'.format(initial_index + index), combine_masks(changes[index],
+                                                                                                        outputs[
+                                                                                                            index] > 0.5),
+                                              epoch + 1,
+                                              dataformats='HWC')
 
                 self.valid_step += 1
                 valid_loss += loss.item()
+
+            self.writer.add_image('confusion_matrix',
+                                  plot_to_image(plot_confusion_matrix(self.cd_evaluation.get_confusion_matrix(),
+                                                                      ['change', 'background'])),
+                                  epoch + 1,
+                                  dataformats='HWC')
 
         return valid_loss / len(self.valid_dataloader)
 
@@ -192,6 +224,7 @@ class ChangeDetectionTrain:
         checkpoint = {
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
+            'epoch': epoch + 1,
             'training_losses': train_loss,
             'validation_losses': valid_loss,
             'train_step': self.train_step,

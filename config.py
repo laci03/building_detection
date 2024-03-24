@@ -40,6 +40,7 @@ class ChangeDetectionConfig:
         cd_config['model_path'] = self.config['config']['model_path']
 
         cd_config['tensorboard_path'] = os.path.join(cd_config['output_path'], 'tensorboard')
+        cd_config['no_of_batches_to_plot'] = int(self.config['config']['no_of_batches_to_plot'])
         return cd_config
 
 
