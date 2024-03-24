@@ -34,6 +34,9 @@ class ChangeDetectionTrain:
 
         self.best_f1, self.best_recall, self.best_precision, self.best_accuracy = 0, 0, 0, 0
 
+        self.best_valid_loss = np.inf
+        self.early_stop_counter = 0
+
         self.batches_to_plot = None
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -125,6 +128,15 @@ class ChangeDetectionTrain:
 
         self.logger.info('Model resumed successfully: {}'.format(self.config['model_path']))
 
+    def early_stop(self, valid_loss):
+        if valid_loss < self.best_valid_loss:
+            self.best_valid_loss = valid_loss
+            self.early_stop_counter = 0
+        elif valid_loss > (self.best_valid_loss + self.config['min_delta']):
+            self.early_stop_counter += 1
+
+        return self.early_stop_counter >= self.config['patience']
+
     def run(self):
         for epoch in range(self.start_epoch, self.config['no_of_epochs'], 1):
             start_time = time.time()
@@ -136,7 +148,7 @@ class ChangeDetectionTrain:
             self.log_to_tensorboard(train_loss, valid_loss, epoch)
 
             if self.config['save_model']:
-                self.save_model(epoch, train_loss, valid_loss)
+                self.save_model(epoch)
 
             self.logger.info('[{}/{}] train loss: {}, valid loss: {}, elapsed time: {}'.format(epoch + 1,
                                                                                                self.config[
@@ -144,6 +156,11 @@ class ChangeDetectionTrain:
                                                                                                train_loss,
                                                                                                valid_loss,
                                                                                                time.time() - start_time))
+
+            if self.early_stop(valid_loss):
+                self.logger.info('Early stop activated, min_delta: {}, patience: {}'.format(self.config['min_delta'],
+                                                                                            self.config['patience']))
+                break
 
         self.writer.flush()
         self.writer.close()
@@ -219,14 +236,12 @@ class ChangeDetectionTrain:
 
         return valid_loss / len(self.valid_dataloader)
 
-    def save_model(self, epoch, train_loss, valid_loss):
+    def save_model(self, epoch):
         # save the model
         checkpoint = {
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'epoch': epoch + 1,
-            'training_losses': train_loss,
-            'validation_losses': valid_loss,
             'train_step': self.train_step,
             'valid_step': self.valid_step,
             'best_f1': self.cd_evaluation.best_f1,
