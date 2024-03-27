@@ -2,6 +2,7 @@ import os
 import torch
 import logging
 import time
+import gc
 
 import numpy as np
 import segmentation_models_pytorch as smp
@@ -161,6 +162,8 @@ class ChangeDetectionTrain:
                 self.logger.info('Early stop activated, min_delta: {}, patience: {}'.format(self.config['min_delta'],
                                                                                             self.config['patience']))
                 break
+
+            gc.collect()
 
         self.writer.flush()
         self.writer.close()
