@@ -5,6 +5,7 @@ import time
 import gc
 
 import numpy as np
+import albumentations as A
 import segmentation_models_pytorch as smp
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -74,13 +75,21 @@ class ChangeDetectionTrain:
         self.logger.info('Cuda available: {}'.format(torch.cuda.is_available()))
 
     def init_dataloaders(self):
+        transform = A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.RandomRotate90(p=0.5),
+            A.ShiftScaleRotate(scale_limit=(-0.1, 0.1))
+        ],
+            additional_targets={'image_2': 'image', 'mask_2': 'mask'})
+
         train_dataset = ChangeDetectionDataset(dataset_path=self.config['dataset_path'],
                                                masks_path=self.config['masks_path'],
                                                df_path=self.config['train_df_path'],
                                                no_of_crops_per_combination=self.config['no_of_crops_per_combination'],
                                                training_mode=True,
                                                crop_size=self.config['crop_size'],
-                                               return_masks=self.config['return_masks'])
+                                               return_masks=self.config['return_masks'],
+                                               transform=transform)
 
         valid_dataset = ChangeDetectionDataset(dataset_path=self.config['dataset_path'],
                                                masks_path=self.config['masks_path'],

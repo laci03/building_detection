@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import albumentations as A
 
 from pathlib import Path
 
@@ -12,8 +13,8 @@ from torch.utils.data import Dataset
 
 
 class ChangeDetectionDataset(Dataset):
-    def __init__(self, dataset_path, masks_path, df_path,
-                 no_of_crops_per_combination=1, training_mode=True, crop_size=None, return_masks=False, shuffle=False):
+    def __init__(self, dataset_path, masks_path, df_path, no_of_crops_per_combination=1,
+                 training_mode=True, crop_size=None, return_masks=False, shuffle=False, transform=None):
         self.dataset_path = Path(dataset_path)
         self.masks_path = Path(masks_path)
 
@@ -32,13 +33,15 @@ class ChangeDetectionDataset(Dataset):
         self.crop_size = crop_size
         self.return_masks = return_masks
 
+        self.transform = transform
+
     def create_combinations(self):
         combinations = []
 
         for aoi_name in sorted(list(set(self.df['AOI_name']))):
             file_list = sorted(list(set(self.df[self.df['AOI_name'] == aoi_name]['filename'])))
             for i in range(len(file_list[:-1])):
-                for j in range(i+1, len(file_list)):
+                for j in range(i + 1, len(file_list)):
                     combinations.append((aoi_name, file_list[i], file_list[j]))
 
         return combinations
@@ -75,8 +78,14 @@ class ChangeDetectionDataset(Dataset):
         image_1 = udm_mask * image_1
         image_2 = udm_mask * image_2
 
-        mask_1 = udm_mask * np.bool_(mask_1[:, :, None])
-        mask_2 = udm_mask * np.bool_(mask_2[:, :, None])
+        mask_1 = np.array(udm_mask * mask_1[:, :, None], np.float32)
+        mask_2 = np.array(udm_mask * mask_2[:, :, None], np.float32)
+
+        if self.transform:
+            transformed = self.transform(image=image_1, image_2=image_2, mask=mask_1, mask_2=mask_2)
+
+            image_1, image_2, mask_1, mask_2 = transformed['image'], transformed['image_2'], transformed['mask'], \
+                transformed['mask_2']
 
         change = np.logical_xor(mask_1, mask_2)
 
@@ -146,8 +155,8 @@ def visualize_dataset(image_1, image_2, mask_1, mask_2, change, resize_factor=2)
 
     change = change.numpy().transpose((1, 2, 0))
 
-    dims = (image.shape[1]//resize_factor, image.shape[0]//resize_factor)
-    change_dims = (change.shape[1]//resize_factor, change.shape[0]//resize_factor)
+    dims = (image.shape[1] // resize_factor, image.shape[0] // resize_factor)
+    change_dims = (change.shape[1] // resize_factor, change.shape[0] // resize_factor)
 
     cv2.imshow('image', cv2.resize(image, dims))
     cv2.imshow('mask', cv2.resize(mask, dims))
@@ -158,6 +167,12 @@ def visualize_dataset(image_1, image_2, mask_1, mask_2, change, resize_factor=2)
 
 if __name__ == '__main__':
     resize_factor = 2
+    transform = A.Compose([
+        A.HorizontalFlip(p=0.5),
+        A.RandomRotate90(p=0.5),
+        A.ShiftScaleRotate(scale_limit=(-0.1, 0.1))
+    ],
+        additional_targets={'image_2': 'image', 'mask_2': 'mask'})
 
     dataset = ChangeDetectionDataset(dataset_path='../change_detection_dataset/SN7_buildings/train',
                                      masks_path='../change_detection_dataset/SN7_masks',
@@ -166,7 +181,8 @@ if __name__ == '__main__':
                                      training_mode=False,
                                      crop_size=256,
                                      return_masks=True,
-                                     shuffle=True)
+                                     shuffle=True,
+                                     transform=transform)
 
     for idx in tqdm(range(len(dataset))):
         ch = visualize_dataset(*dataset[idx], resize_factor=resize_factor)
