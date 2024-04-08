@@ -46,6 +46,15 @@ class ChangeDetectionConfig:
         cd_config['min_delta'] = float(self.config['config']['min_delta'])
         cd_config['patience'] = int(self.config['config']['patience'])
 
+        # image standardization
+        cd_config['rgb_mean'] = (float(self.config['config']['r_mean']),
+                                 float(self.config['config']['g_mean']),
+                                 float(self.config['config']['b_mean']))
+
+        cd_config['rgb_std'] = (float(self.config['config']['r_std']),
+                                float(self.config['config']['g_std']),
+                                float(self.config['config']['b_std']))
+
         return cd_config
 
 

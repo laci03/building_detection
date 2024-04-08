@@ -14,7 +14,8 @@ from torch.utils.data import Dataset
 
 class ChangeDetectionDataset(Dataset):
     def __init__(self, dataset_path, masks_path, df_path, no_of_crops_per_combination=1,
-                 training_mode=True, crop_size=None, return_masks=False, shuffle=False, transform=None):
+                 training_mode=True, crop_size=None, return_masks=False, shuffle=False, transform=None,
+                 rgb_mean=None, rgb_std=None):
         self.dataset_path = Path(dataset_path)
         self.masks_path = Path(masks_path)
 
@@ -34,6 +35,9 @@ class ChangeDetectionDataset(Dataset):
         self.return_masks = return_masks
 
         self.transform = transform
+
+        self.rgb_mean = rgb_mean
+        self.rgb_std = rgb_std
 
     def create_combinations(self):
         combinations = []
@@ -74,6 +78,10 @@ class ChangeDetectionDataset(Dataset):
 
         udm_mask = np.logical_not(np.logical_or(np.all(image_1 == 0, axis=-1),
                                                 np.all(image_2 == 0, axis=-1)))[:, :, None]
+
+        if self.rgb_mean is not None and self.rgb_std is not None:
+            image_1 = (image_1 - self.rgb_mean) / self.rgb_std
+            image_2 = (image_2 - self.rgb_mean) / self.rgb_std
 
         image_1 = udm_mask * image_1
         image_2 = udm_mask * image_2
@@ -116,8 +124,8 @@ class ChangeDetectionDataset(Dataset):
                 mask_2 = self.update_mask(mask_2, image_1.shape[:-1])
                 change = self.update_mask(change, image_1.shape[:-1])
 
-        image_1 = torch.from_numpy(np.array(image_1.transpose((2, 0, 1)), dtype=np.float32) / 255.0)
-        image_2 = torch.from_numpy(np.array(image_2.transpose((2, 0, 1)), dtype=np.float32) / 255.0)
+        image_1 = torch.from_numpy(np.array(image_1.transpose((2, 0, 1)), dtype=np.float32))
+        image_2 = torch.from_numpy(np.array(image_2.transpose((2, 0, 1)), dtype=np.float32))
 
         change = torch.from_numpy(np.array(change.transpose((2, 0, 1)), dtype=np.float32))
 
@@ -142,9 +150,13 @@ class ChangeDetectionDataset(Dataset):
         self.training_mode = False
 
 
-def visualize_dataset(image_1, image_2, mask_1, mask_2, change, resize_factor=2):
+def visualize_dataset(image_1, image_2, mask_1, mask_2, change, resize_factor=2, rgb_mean=None, rgb_std=None):
     image_1 = image_1.numpy().transpose((1, 2, 0))[:, :, ::-1]
     image_2 = image_2.numpy().transpose((1, 2, 0))[:, :, ::-1]
+
+    if rgb_mean is not None and rgb_std is not None:
+        image_1 = np.array(np.clip(image_1 * rgb_std[::-1] + rgb_mean[::-1], 0, 255), dtype=np.uint8)
+        image_2 = np.array(np.clip(image_2 * rgb_std[::-1] + rgb_mean[::-1], 0, 255), dtype=np.uint8)
 
     image = np.hstack([image_1, image_2])
 
@@ -166,6 +178,9 @@ def visualize_dataset(image_1, image_2, mask_1, mask_2, change, resize_factor=2)
 
 
 if __name__ == '__main__':
+    rgb_mean = (120.63812214, 105.92798168,  77.53151193)
+    rgb_std = (60.0614334, 47.96735684, 44.21755486)
+
     resize_factor = 2
     transform = A.Compose([
         A.HorizontalFlip(p=0.5),
@@ -176,16 +191,18 @@ if __name__ == '__main__':
 
     dataset = ChangeDetectionDataset(dataset_path='../change_detection_dataset/SN7_buildings/train',
                                      masks_path='../change_detection_dataset/SN7_masks',
-                                     df_path='../change_detection_dataset/dataset_1/valid.csv',
+                                     df_path='../change_detection_dataset/dataset_1/train.csv',
                                      no_of_crops_per_combination=10,
                                      training_mode=False,
                                      crop_size=256,
                                      return_masks=True,
-                                     shuffle=True,
-                                     transform=transform)
+                                     shuffle=False,
+                                     transform=transform,
+                                     rgb_mean=rgb_mean,
+                                     rgb_std=rgb_std)
 
     for idx in tqdm(range(len(dataset))):
-        ch = visualize_dataset(*dataset[idx], resize_factor=resize_factor)
+        ch = visualize_dataset(*dataset[idx], resize_factor=resize_factor, rgb_mean=rgb_mean, rgb_std=rgb_std)
 
         if ch & 0xff == ord('q'):
             break

@@ -89,14 +89,18 @@ class ChangeDetectionTrain:
                                                training_mode=True,
                                                crop_size=self.config['crop_size'],
                                                return_masks=self.config['return_masks'],
-                                               transform=transform)
+                                               transform=transform,
+                                               rgb_mean=self.config['rgb_mean'],
+                                               rgb_std=self.config['rgb_std'])
 
         valid_dataset = ChangeDetectionDataset(dataset_path=self.config['dataset_path'],
                                                masks_path=self.config['masks_path'],
                                                df_path=self.config['valid_df_path'],
                                                training_mode=False,
                                                return_masks=self.config['return_masks'],
-                                               shuffle=True)
+                                               shuffle=True,
+                                               rgb_mean=self.config['rgb_mean'],
+                                               rgb_std=self.config['rgb_std'])
 
         self.train_dataloader = DataLoader(train_dataset,
                                            batch_size=self.config['batch_size'],
