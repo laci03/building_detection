@@ -79,13 +79,6 @@ class ChangeDetectionDataset(Dataset):
         udm_mask = np.logical_not(np.logical_or(np.all(image_1 == 0, axis=-1),
                                                 np.all(image_2 == 0, axis=-1)))[:, :, None]
 
-        if self.rgb_mean is not None and self.rgb_std is not None:
-            image_1 = (image_1 - self.rgb_mean) / self.rgb_std
-            image_2 = (image_2 - self.rgb_mean) / self.rgb_std
-
-        image_1 = udm_mask * image_1
-        image_2 = udm_mask * image_2
-
         mask_1 = np.array(udm_mask * mask_1[:, :, None], np.float32)
         mask_2 = np.array(udm_mask * mask_2[:, :, None], np.float32)
 
