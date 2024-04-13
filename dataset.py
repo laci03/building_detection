@@ -98,14 +98,25 @@ class ChangeDetectionDataset(Dataset):
         change = np.logical_xor(mask_1, mask_2)
 
         if self.training_mode:  # crop from the initial image
-            x = np.random.randint(0, image_1.shape[0] - self.crop_size)
-            y = np.random.randint(0, image_1.shape[1] - self.crop_size)
+            tries = 0
+            while tries < 500:
+                x = np.random.randint(0, image_1.shape[0] - self.crop_size)
+                y = np.random.randint(0, image_1.shape[1] - self.crop_size)
+
+                aux_change = change[x:x + self.crop_size, y:y + self.crop_size, :]
+
+                if np.sum(aux_change) > 100:
+                    break
+
+                tries += 1
 
             image_1 = image_1[x:x + self.crop_size, y:y + self.crop_size, :]
             image_2 = image_2[x:x + self.crop_size, y:y + self.crop_size, :]
             mask_1 = mask_1[x:x + self.crop_size, y:y + self.crop_size, :]
             mask_2 = mask_2[x:x + self.crop_size, y:y + self.crop_size, :]
             change = change[x:x + self.crop_size, y:y + self.crop_size, :]
+
+            udm_mask = udm_mask[x:x + self.crop_size, y:y + self.crop_size, :]
         else:
             height, width = image_1.shape[:-1]
 
@@ -123,6 +134,14 @@ class ChangeDetectionDataset(Dataset):
 
                 mask_2 = self.update_mask(mask_2, image_1.shape[:-1])
                 change = self.update_mask(change, image_1.shape[:-1])
+                udm_mask = self.update_mask(udm_mask, image_1.shape[:-1])
+
+        if self.rgb_mean is not None and self.rgb_std is not None:
+            image_1 = (image_1 - self.rgb_mean) / self.rgb_std
+            image_2 = (image_2 - self.rgb_mean) / self.rgb_std
+
+        image_1 = udm_mask * image_1
+        image_2 = udm_mask * image_2
 
         image_1 = torch.from_numpy(np.array(image_1.transpose((2, 0, 1)), dtype=np.float32))
         image_2 = torch.from_numpy(np.array(image_2.transpose((2, 0, 1)), dtype=np.float32))

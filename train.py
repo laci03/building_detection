@@ -7,6 +7,7 @@ import gc
 import numpy as np
 import albumentations as A
 import segmentation_models_pytorch as smp
+from segmentation_models_pytorch.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -49,7 +50,8 @@ class ChangeDetectionTrain:
 
         self.init_model()
 
-        self.loss_fn = torch.nn.BCELoss()
+        # self.loss_fn = torch.nn.BCELoss()
+        self.loss_fn = DiceLoss(mode='binary', from_logits=False)
         self.optimizer = torch.optim.Adam(self.model.parameters())
 
         if self.config['resume_training']:
@@ -159,6 +161,8 @@ class ChangeDetectionTrain:
             valid_loss = self.validate(epoch)
 
             self.cd_evaluation.update_best()
+            early_stop = self.early_stop(valid_loss)
+
             self.log_to_tensorboard(train_loss, valid_loss, epoch)
 
             if self.config['save_model']:
@@ -171,7 +175,7 @@ class ChangeDetectionTrain:
                                                                                                valid_loss,
                                                                                                time.time() - start_time))
 
-            if self.early_stop(valid_loss):
+            if early_stop:
                 self.logger.info('Early stop activated, min_delta: {}, patience: {}'.format(self.config['min_delta'],
                                                                                             self.config['patience']))
                 break
@@ -184,6 +188,7 @@ class ChangeDetectionTrain:
     def log_to_tensorboard(self, train_loss, valid_loss, epoch):
         self.writer.add_scalar("Loss_epoch/train", train_loss, epoch + 1)
         self.writer.add_scalar("Loss_epoch/valid", valid_loss, epoch + 1)
+        self.writer.add_scalar("params/patience", self.early_stop_counter, epoch + 1)
         self.writer.add_scalar("valid/accuracy", self.cd_evaluation.get_accuracy().cpu().numpy(), epoch + 1)
         self.writer.add_scalar("valid/precision", self.cd_evaluation.get_precision().cpu().numpy(), epoch + 1)
         self.writer.add_scalar("valid/recall", self.cd_evaluation.get_recall().cpu().numpy(), epoch + 1)
