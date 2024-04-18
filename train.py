@@ -53,7 +53,6 @@ class ChangeDetectionTrain:
 
         # self.loss_fn = torch.nn.BCELoss()
         self.loss_fn = DiceLoss(mode='binary', from_logits=False)
-        self.optimizer = torch.optim.Adam(self.model.parameters())
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config['lr'])
         self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
 
