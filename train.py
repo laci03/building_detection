@@ -3,11 +3,17 @@ import torch
 import logging
 import time
 import gc
+import shutil
 
 import numpy as np
 import albumentations as A
 import segmentation_models_pytorch as smp
+
 from segmentation_models_pytorch.losses import DiceLoss
+from sacred import Experiment
+from sacred.utils import apply_backspaces_and_linefeeds
+from sacred.observers import FileStorageObserver
+
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -20,9 +26,9 @@ from visualizations import combine_masks, plot_confusion_matrix, plot_to_image
 
 
 class ChangeDetectionTrain:
-    def __init__(self):
+    def __init__(self, config_path):
         # read config
-        self.config = ChangeDetectionConfig().get_config()
+        self.config = ChangeDetectionConfig(config_path).get_config()
         self.logger = logging.getLogger(__name__)
         logging.basicConfig()
         logging.root.setLevel(logging.INFO)
@@ -69,6 +75,8 @@ class ChangeDetectionTrain:
         self.writer = SummaryWriter(self.config['tensorboard_path'])
 
         self.print_status()
+
+        shutil.copy(config_path, self.config['output_path'])
 
     def print_status(self):
         self.logger.info('Train batch size: {}'.format(self.config['batch_size']))
@@ -294,5 +302,20 @@ class ChangeDetectionTrain:
                        os.path.join(self.config['output_path'], 'best_accuracy_{:03d}'.format(epoch + 1)))
 
 
+ex = Experiment()
+ex.captured_out_filter = apply_backspaces_and_linefeeds
+ex.observers.append(FileStorageObserver('../change_detection_output/sacred'))
+
+
+@ex.config
+def cd_config():
+    config_path = 'config.ini'
+
+
+@ex.main
+def cd_main(config_path):
+    ChangeDetectionTrain(config_path).run()
+
+
 if __name__ == '__main__':
-    ChangeDetectionTrain().run()
+    ex.run_commandline()
