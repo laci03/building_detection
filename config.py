@@ -21,6 +21,8 @@ class ChangeDetectionConfig:
         cd_config['valid_batch'] = int(self.config['config']['valid_batch'])
         cd_config['valid_workers'] = int(self.config['config']['valid_workers'])
 
+        cd_config['lr'] = float(self.config['config']['lr'])
+
         # dataset parameters
         cd_config['dataset_path'] = self.config['config']['dataset_path']
         cd_config['masks_path'] = self.config['config']['masks_path']

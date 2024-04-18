@@ -10,6 +10,7 @@ import segmentation_models_pytorch as smp
 from segmentation_models_pytorch.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from config import ChangeDetectionConfig
 from dataset import ChangeDetectionDataset
@@ -53,6 +54,8 @@ class ChangeDetectionTrain:
         # self.loss_fn = torch.nn.BCELoss()
         self.loss_fn = DiceLoss(mode='binary', from_logits=False)
         self.optimizer = torch.optim.Adam(self.model.parameters())
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config['lr'])
+        self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
 
         if self.config['resume_training']:
             self.resume_training()
@@ -132,6 +135,7 @@ class ChangeDetectionTrain:
         checkpoint = torch.load(self.config['model_path'])
         self.model.load_state_dict(checkpoint['model'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
+        self.scheduler.load_state_dict(checkpoint['scheduler'])
 
         self.train_step, self.valid_step, self.start_epoch = (checkpoint['train_step'],
                                                               checkpoint['valid_step'],
@@ -159,6 +163,7 @@ class ChangeDetectionTrain:
 
             train_loss = self.train()
             valid_loss = self.validate(epoch)
+            self.scheduler.step(valid_loss)
 
             self.cd_evaluation.update_best()
             early_stop = self.early_stop(valid_loss)
@@ -189,6 +194,7 @@ class ChangeDetectionTrain:
         self.writer.add_scalar("Loss_epoch/train", train_loss, epoch + 1)
         self.writer.add_scalar("Loss_epoch/valid", valid_loss, epoch + 1)
         self.writer.add_scalar("params/patience", self.early_stop_counter, epoch + 1)
+        self.writer.add_scalar("params/learning_rate", self.scheduler.get_last_lr()[0], epoch + 1)
         self.writer.add_scalar("valid/accuracy", self.cd_evaluation.get_accuracy().cpu().numpy(), epoch + 1)
         self.writer.add_scalar("valid/precision", self.cd_evaluation.get_precision().cpu().numpy(), epoch + 1)
         self.writer.add_scalar("valid/recall", self.cd_evaluation.get_recall().cpu().numpy(), epoch + 1)
@@ -265,6 +271,7 @@ class ChangeDetectionTrain:
             'epoch': epoch + 1,
             'train_step': self.train_step,
             'valid_step': self.valid_step,
+            'scheduler': self.scheduler.state_dict(),
             'best_f1': self.cd_evaluation.best_f1,
             'best_recall': self.cd_evaluation.best_recall,
             'best_precision': self.cd_evaluation.best_precision,
