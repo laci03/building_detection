@@ -2,7 +2,7 @@ import os
 import configparser
 
 
-class ChangeDetectionConfig:
+class BuildingDetectionConfig:
     def __init__(self, path='config.ini'):
         self.config = configparser.ConfigParser()
         self.config.read(path)
@@ -61,4 +61,4 @@ class ChangeDetectionConfig:
 
 
 if __name__ == '__main__':
-    config = ChangeDetectionConfig().get_config()
+    config = BuildingDetectionConfig().get_config()

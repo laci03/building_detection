@@ -18,17 +18,17 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from config import ChangeDetectionConfig
-from dataset import ChangeDetectionDataset
-from evaluation import ChangeDetectionEvaluation
+from config import BuildingDetectionConfig
+from dataset import BuildingDetectionDataset
+from evaluation import BuildingDetectionEvaluation
 
 from visualizations import combine_masks, plot_confusion_matrix, plot_to_image
 
 
-class ChangeDetectionTrain:
+class BuildingDetectionTrain:
     def __init__(self, config_path):
         # read config
-        self.config = ChangeDetectionConfig(config_path).get_config()
+        self.config = BuildingDetectionConfig(config_path).get_config()
         self.logger = logging.getLogger(__name__)
         logging.basicConfig()
         logging.root.setLevel(logging.INFO)
@@ -65,8 +65,8 @@ class ChangeDetectionTrain:
         if self.config['resume_training']:
             self.resume_training()
 
-        self.cd_evaluation = ChangeDetectionEvaluation(self.device, self.best_f1, self.best_recall,
-                                                       self.best_precision, self.best_accuracy)
+        self.bd_evaluation = BuildingDetectionEvaluation(self.device, self.best_f1, self.best_recall,
+                                                         self.best_precision, self.best_accuracy)
 
         os.makedirs(self.config['output_path'], exist_ok=True)
         os.makedirs(self.config['tensorboard_path'], exist_ok=True)
@@ -91,28 +91,25 @@ class ChangeDetectionTrain:
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
             A.ShiftScaleRotate(scale_limit=(-0.1, 0.1))
-        ],
-            additional_targets={'image_2': 'image', 'mask_2': 'mask'})
+        ])
 
-        train_dataset = ChangeDetectionDataset(dataset_path=self.config['dataset_path'],
-                                               masks_path=self.config['masks_path'],
-                                               df_path=self.config['train_df_path'],
-                                               no_of_crops_per_combination=self.config['no_of_crops_per_combination'],
-                                               training_mode=True,
-                                               crop_size=self.config['crop_size'],
-                                               return_masks=self.config['return_masks'],
-                                               transform=transform,
-                                               rgb_mean=self.config['rgb_mean'],
-                                               rgb_std=self.config['rgb_std'])
+        train_dataset = BuildingDetectionDataset(dataset_path=self.config['dataset_path'],
+                                                 masks_path=self.config['masks_path'],
+                                                 df_path=self.config['train_df_path'],
+                                                 no_of_crops_per_combination=self.config['no_of_crops_per_combination'],
+                                                 training_mode=True,
+                                                 crop_size=self.config['crop_size'],
+                                                 transform=transform,
+                                                 rgb_mean=self.config['rgb_mean'],
+                                                 rgb_std=self.config['rgb_std'])
 
-        valid_dataset = ChangeDetectionDataset(dataset_path=self.config['dataset_path'],
-                                               masks_path=self.config['masks_path'],
-                                               df_path=self.config['valid_df_path'],
-                                               training_mode=False,
-                                               return_masks=self.config['return_masks'],
-                                               shuffle=True,
-                                               rgb_mean=self.config['rgb_mean'],
-                                               rgb_std=self.config['rgb_std'])
+        valid_dataset = BuildingDetectionDataset(dataset_path=self.config['dataset_path'],
+                                                 masks_path=self.config['masks_path'],
+                                                 df_path=self.config['valid_df_path'],
+                                                 training_mode=False,
+                                                 shuffle=True,
+                                                 rgb_mean=self.config['rgb_mean'],
+                                                 rgb_std=self.config['rgb_std'])
 
         self.train_dataloader = DataLoader(train_dataset,
                                            batch_size=self.config['batch_size'],
@@ -132,9 +129,8 @@ class ChangeDetectionTrain:
 
     def init_model(self):
         self.model = smp.create_model(arch='unet', activation='sigmoid',
-                                      in_channels=6,
-                                      encoder_depth=4,
-                                      decoder_channels=(256, 128, 64, 32))
+                                      encoder_name='resnet50',
+                                      in_channels=3)
 
         self.model.to(self.device)
 
@@ -172,7 +168,7 @@ class ChangeDetectionTrain:
             valid_loss = self.validate(epoch)
             self.scheduler.step(valid_loss)
 
-            self.cd_evaluation.update_best()
+            self.bd_evaluation.update_best()
             early_stop = self.early_stop(valid_loss)
 
             self.log_to_tensorboard(train_loss, valid_loss, epoch)
@@ -202,25 +198,24 @@ class ChangeDetectionTrain:
         self.writer.add_scalar("Loss_epoch/valid", valid_loss, epoch + 1)
         self.writer.add_scalar("params/patience", self.early_stop_counter, epoch + 1)
         self.writer.add_scalar("params/learning_rate", self.scheduler.get_last_lr()[0], epoch + 1)
-        self.writer.add_scalar("valid/accuracy", self.cd_evaluation.get_accuracy().cpu().numpy(), epoch + 1)
-        self.writer.add_scalar("valid/precision", self.cd_evaluation.get_precision().cpu().numpy(), epoch + 1)
-        self.writer.add_scalar("valid/recall", self.cd_evaluation.get_recall().cpu().numpy(), epoch + 1)
-        self.writer.add_scalar("valid/f1", self.cd_evaluation.get_f1().cpu().numpy(), epoch + 1)
+        self.writer.add_scalar("valid/accuracy", self.bd_evaluation.get_accuracy().cpu().numpy(), epoch + 1)
+        self.writer.add_scalar("valid/precision", self.bd_evaluation.get_precision().cpu().numpy(), epoch + 1)
+        self.writer.add_scalar("valid/recall", self.bd_evaluation.get_recall().cpu().numpy(), epoch + 1)
+        self.writer.add_scalar("valid/f1", self.bd_evaluation.get_f1().cpu().numpy(), epoch + 1)
 
     def train(self):
         self.model.train()
         train_loss = 0
 
-        for images_1, images_2, changes in self.train_dataloader:
-            images = torch.concat([images_1, images_2], dim=1)
+        for images, masks in self.train_dataloader:
             images = images.to(self.device)
-            changes = changes.to(self.device)
+            masks = masks.to(self.device)
 
             self.optimizer.zero_grad()
             outputs = self.model(images)
 
             # Compute the loss and its gradients
-            loss = self.loss_fn(outputs, changes)
+            loss = self.loss_fn(outputs, masks)
 
             train_loss += loss.item()
 
@@ -235,25 +230,24 @@ class ChangeDetectionTrain:
 
     def validate(self, epoch):
         self.model.eval()
-        self.cd_evaluation.reset()
+        self.bd_evaluation.reset()
         valid_loss = 0
 
         with torch.no_grad():
-            for i, (images_1, images_2, changes) in enumerate(self.valid_dataloader):
-                images = torch.concat([images_1, images_2], dim=1)
+            for i, (images, masks) in enumerate(self.valid_dataloader):
                 images = images.to(self.device)
-                changes = changes.to(self.device)
+                masks = masks.to(self.device)
 
                 outputs = self.model(images)
 
-                loss = self.loss_fn(outputs, changes)
-                self.cd_evaluation.update(ground_truth=changes, prediction=outputs)
+                loss = self.loss_fn(outputs, masks)
+                self.bd_evaluation.update(ground_truth=masks, prediction=outputs)
                 self.writer.add_scalar("Loss_step/valid", loss.item(), self.valid_step)
 
                 if i in self.batches_to_plot:
                     initial_index = np.where(i == self.batches_to_plot)[0][0] * self.config['valid_batch']
                     for index in range(self.config['valid_batch']):
-                        self.writer.add_image('example_{}'.format(initial_index + index), combine_masks(changes[index],
+                        self.writer.add_image('example_{}'.format(initial_index + index), combine_masks(masks[index],
                                                                                                         outputs[
                                                                                                             index] > 0.5),
                                               epoch + 1,
@@ -263,8 +257,8 @@ class ChangeDetectionTrain:
                 valid_loss += loss.item()
 
             self.writer.add_image('confusion_matrix',
-                                  plot_to_image(plot_confusion_matrix(self.cd_evaluation.get_confusion_matrix(),
-                                                                      ['change', 'background'])),
+                                  plot_to_image(plot_confusion_matrix(self.bd_evaluation.get_confusion_matrix(),
+                                                                      ['building', 'background'])),
                                   epoch + 1,
                                   dataformats='HWC')
 
@@ -279,32 +273,32 @@ class ChangeDetectionTrain:
             'train_step': self.train_step,
             'valid_step': self.valid_step,
             'scheduler': self.scheduler.state_dict(),
-            'best_f1': self.cd_evaluation.best_f1,
-            'best_recall': self.cd_evaluation.best_recall,
-            'best_precision': self.cd_evaluation.best_precision,
-            'best_accuracy': self.cd_evaluation.best_accuracy
+            'best_f1': self.bd_evaluation.best_f1,
+            'best_recall': self.bd_evaluation.best_recall,
+            'best_precision': self.bd_evaluation.best_precision,
+            'best_accuracy': self.bd_evaluation.best_accuracy
         }
 
-        torch.save(checkpoint, os.path.join(self.config['output_path'], 'model_{:03d}'.format(epoch + 1)))
+        torch.save(checkpoint, os.path.join(self.config['output_path'], 'model'))
 
-        if self.cd_evaluation.is_best_f1:
-            torch.save(checkpoint, os.path.join(self.config['output_path'], 'best_f1_{:03d}'.format(epoch + 1)))
+        if self.bd_evaluation.is_best_f1:
+            torch.save(checkpoint, os.path.join(self.config['output_path'], 'best_f1'))
 
-        if self.cd_evaluation.is_best_recall:
-            torch.save(checkpoint, os.path.join(self.config['output_path'], 'best_recall_{:03d}'.format(epoch + 1)))
+        if self.bd_evaluation.is_best_recall:
+            torch.save(checkpoint, os.path.join(self.config['output_path'], 'best_recall'))
 
-        if self.cd_evaluation.is_best_precision:
+        if self.bd_evaluation.is_best_precision:
             torch.save(checkpoint,
-                       os.path.join(self.config['output_path'], 'best_precision_{:03d}'.format(epoch + 1)))
+                       os.path.join(self.config['output_path'], 'best_precision'))
 
-        if self.cd_evaluation.is_best_accuracy:
+        if self.bd_evaluation.is_best_accuracy:
             torch.save(checkpoint,
-                       os.path.join(self.config['output_path'], 'best_accuracy_{:03d}'.format(epoch + 1)))
+                       os.path.join(self.config['output_path'], 'best_accuracy'))
 
 
 ex = Experiment()
 ex.captured_out_filter = apply_backspaces_and_linefeeds
-ex.observers.append(FileStorageObserver('../change_detection_output/sacred'))
+ex.observers.append(FileStorageObserver('../building_detection_experiments/sacred'))
 
 
 @ex.config
@@ -314,7 +308,7 @@ def cd_config():
 
 @ex.main
 def cd_main(config_path):
-    ChangeDetectionTrain(config_path).run()
+    BuildingDetectionTrain(config_path).run()
 
 
 if __name__ == '__main__':

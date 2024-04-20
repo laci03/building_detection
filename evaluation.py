@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 
-class ChangeDetectionEvaluation:
+class BuildingDetectionEvaluation:
     def __init__(self, device=torch.device('cpu'), best_f1=0, best_recall=0, best_precision=0, best_accuracy=0):
         self.device = device
         self.tp = torch.tensor(0, device=self.device, dtype=torch.float32)

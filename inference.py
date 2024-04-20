@@ -8,9 +8,9 @@ import segmentation_models_pytorch as smp
 
 from pathlib import Path
 
-from dataset import ChangeDetectionDataset
+from dataset import BuildingDetectionDataset
 from visualizations import combine_masks
-from config import ChangeDetectionConfig
+from config import BuildingDetectionConfig
 
 
 def visualize_results(image_1, image_2, mask_1, mask_2, change, pred, resize_factor=2, rgb_mean=(0, 0, 0),
@@ -42,14 +42,14 @@ def run_inference(config):
 
     # load data
     if config['input_path'].suffix == '.csv':
-        inference_dataset = ChangeDetectionDataset(dataset_path=config['dataset_path'],
-                                                   masks_path=config['masks_path'],
-                                                   df_path=str(config['input_path']),
-                                                   return_masks=True,
-                                                   training_mode=False,
-                                                   shuffle=False,
-                                                   rgb_mean=config['rgb_mean'],
-                                                   rgb_std=config['rgb_std'])
+        inference_dataset = BuildingDetectionDataset(dataset_path=config['dataset_path'],
+                                                     masks_path=config['masks_path'],
+                                                     df_path=str(config['input_path']),
+                                                     return_masks=True,
+                                                     training_mode=False,
+                                                     shuffle=False,
+                                                     rgb_mean=config['rgb_mean'],
+                                                     rgb_std=config['rgb_std'])
 
     # load model
     model = smp.create_model(arch='unet', activation='sigmoid',
@@ -94,7 +94,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     config_path = Path(args['model_path']).parent / 'config.ini'
-    config = ChangeDetectionConfig(config_path).get_config()
+    config = BuildingDetectionConfig(config_path).get_config()
 
     config['model_path'] = args['model_path']
     config['resize_factor'] = args['resize_factor']

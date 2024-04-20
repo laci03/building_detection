@@ -10,11 +10,12 @@ from pathlib import Path
 
 from tqdm import tqdm
 from torch.utils.data import Dataset
+from torchvision.transforms import Resize, InterpolationMode
 
 
-class ChangeDetectionDataset(Dataset):
+class BuildingDetectionDataset(Dataset):
     def __init__(self, dataset_path, masks_path, df_path, no_of_crops_per_combination=1,
-                 training_mode=True, crop_size=None, return_masks=False, shuffle=False, transform=None,
+                 training_mode=True, crop_size=None, shuffle=False, transform=None,
                  rgb_mean=None, rgb_std=None):
         self.dataset_path = Path(dataset_path)
         self.masks_path = Path(masks_path)
@@ -27,28 +28,31 @@ class ChangeDetectionDataset(Dataset):
 
         self.training_mode = training_mode
 
-        self.combinations_list = self.create_combinations()
+        self.file_list = self.create_filelist()
         if self.shuffle:
-            np.random.shuffle(self.combinations_list)
+            np.random.shuffle(self.file_list)
 
         self.crop_size = crop_size
-        self.return_masks = return_masks
 
         self.transform = transform
 
         self.rgb_mean = rgb_mean
         self.rgb_std = rgb_std
 
-    def create_combinations(self):
-        combinations = []
+        self.img_size = self.crop_size if self.training_mode else 1024
+
+        self.resize_img = Resize(size=self.img_size*2)
+        self.resize_mask = Resize(size=self.img_size*2, interpolation=InterpolationMode.NEAREST)
+
+    def create_filelist(self):
+        ds = []
 
         for aoi_name in sorted(list(set(self.df['AOI_name']))):
             file_list = sorted(list(set(self.df[self.df['AOI_name'] == aoi_name]['filename'])))
-            for i in range(len(file_list[:-1])):
-                for j in range(i + 1, len(file_list)):
-                    combinations.append((aoi_name, file_list[i], file_list[j]))
+            for file in file_list:
+                    ds.append((aoi_name, file))
 
-        return combinations
+        return ds
 
     def get_image_and_mask(self, AOI_name, file_name):
         image_path = self.dataset_path / AOI_name / 'images_masked' / '{}.tif'.format(file_name)
@@ -58,7 +62,7 @@ class ChangeDetectionDataset(Dataset):
 
         image = r.transpose((1, 2, 0))[:, :, :-1]
 
-        mask = np.bool_(cv2.imread(str(mask_path), 0))
+        mask = np.array(np.bool_(cv2.imread(str(mask_path), 0))[:, :, None], np.float32)
         return image, mask
 
     @staticmethod
@@ -71,48 +75,23 @@ class ChangeDetectionDataset(Dataset):
         if self.training_mode:
             idx = idx // self.no_of_crops_per_combination
 
-        aoi_name, file_name_1, file_name_2 = self.combinations_list[idx]
+        aoi_name, file_name = self.file_list[idx]
 
-        image_1, mask_1 = self.get_image_and_mask(aoi_name, file_name_1)
-        image_2, mask_2 = self.get_image_and_mask(aoi_name, file_name_2)
-
-        udm_mask = np.logical_not(np.logical_or(np.all(image_1 == 0, axis=-1),
-                                                np.all(image_2 == 0, axis=-1)))[:, :, None]
-
-        mask_1 = np.array(udm_mask * mask_1[:, :, None], np.float32)
-        mask_2 = np.array(udm_mask * mask_2[:, :, None], np.float32)
-
-        image_1 = udm_mask * image_1
-        image_2 = udm_mask * image_2
+        image, mask = self.get_image_and_mask(aoi_name, file_name)
 
         if self.transform:
-            transformed = self.transform(image=image_1, image_2=image_2, mask=mask_1, mask_2=mask_2)
+            transformed = self.transform(image=image, mask=mask)
 
-            image_1, image_2, mask_1, mask_2 = transformed['image'], transformed['image_2'], transformed['mask'], \
-                transformed['mask_2']
-
-        change = np.logical_xor(mask_1, mask_2)
+            image, mask = transformed['image'], transformed['mask']
 
         if self.training_mode:  # crop from the initial image
-            tries = 0
-            while tries < 500:
-                x = np.random.randint(0, image_1.shape[0] - self.crop_size)
-                y = np.random.randint(0, image_1.shape[1] - self.crop_size)
+            x = np.random.randint(0, image.shape[0] - self.crop_size)
+            y = np.random.randint(0, image.shape[1] - self.crop_size)
 
-                aux_change = change[x:x + self.crop_size, y:y + self.crop_size, :]
-
-                if np.sum(aux_change) > 100:
-                    break
-
-                tries += 1
-
-            image_1 = image_1[x:x + self.crop_size, y:y + self.crop_size, :]
-            image_2 = image_2[x:x + self.crop_size, y:y + self.crop_size, :]
-            mask_1 = mask_1[x:x + self.crop_size, y:y + self.crop_size, :]
-            mask_2 = mask_2[x:x + self.crop_size, y:y + self.crop_size, :]
-            change = change[x:x + self.crop_size, y:y + self.crop_size, :]
+            image = image[x:x + self.crop_size, y:y + self.crop_size, :]
+            mask = mask[x:x + self.crop_size, y:y + self.crop_size, :]
         else:
-            height, width = image_1.shape[:-1]
+            height, width = image.shape[:-1]
 
             pad_height = 0
             pad_width = 0
@@ -122,35 +101,22 @@ class ChangeDetectionDataset(Dataset):
                 pad_height = 8 - height % 8
 
             if pad_width or pad_height:
-                image_1 = cv2.copyMakeBorder(image_1, 0, pad_height, 0, pad_width, cv2.BORDER_CONSTANT, value=(0, 0, 0))
-                image_2 = cv2.copyMakeBorder(image_2, 0, pad_height, 0, pad_width, cv2.BORDER_CONSTANT, value=(0, 0, 0))
-                mask_1 = self.update_mask(mask_1, image_1.shape[:-1])
-
-                mask_2 = self.update_mask(mask_2, image_1.shape[:-1])
-                change = self.update_mask(change, image_1.shape[:-1])
+                image = cv2.copyMakeBorder(image, 0, pad_height, 0, pad_width, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+                mask = self.update_mask(mask, image.shape[:-1])
 
         if self.rgb_mean is not None and self.rgb_std is not None:
-            image_1 = (image_1 - self.rgb_mean) / self.rgb_std
-            image_2 = (image_2 - self.rgb_mean) / self.rgb_std
+            image = (image - self.rgb_mean) / self.rgb_std
 
-        image_1 = torch.from_numpy(np.array(image_1.transpose((2, 0, 1)), dtype=np.float32))
-        image_2 = torch.from_numpy(np.array(image_2.transpose((2, 0, 1)), dtype=np.float32))
+        image = torch.from_numpy(np.array(image.transpose((2, 0, 1)), dtype=np.float32))
+        mask = torch.from_numpy(np.array(mask.transpose((2, 0, 1)), dtype=np.float32))
 
-        change = torch.from_numpy(np.array(change.transpose((2, 0, 1)), dtype=np.float32))
-
-        if self.return_masks:
-            mask_1 = torch.from_numpy(np.array(mask_1.transpose((2, 0, 1)), dtype=np.float32))
-            mask_2 = torch.from_numpy(np.array(mask_2.transpose((2, 0, 1)), dtype=np.float32))
-
-            return image_1, image_2, mask_1, mask_2, change
-        else:
-            return image_1, image_2, change
+        return self.resize_img(image), self.resize_mask(mask)
 
     def __len__(self):
         if self.training_mode:
-            return self.no_of_crops_per_combination * len(self.combinations_list)
+            return self.no_of_crops_per_combination * len(self.file_list)
         else:
-            return len(self.combinations_list)
+            return len(self.file_list)
 
     def train(self):
         self.training_mode = True
@@ -159,56 +125,44 @@ class ChangeDetectionDataset(Dataset):
         self.training_mode = False
 
 
-def visualize_dataset(image_1, image_2, mask_1, mask_2, change, resize_factor=2, rgb_mean=None, rgb_std=None):
-    image_1 = image_1.numpy().transpose((1, 2, 0))[:, :, ::-1]
-    image_2 = image_2.numpy().transpose((1, 2, 0))[:, :, ::-1]
+def visualize_dataset(image, mask, resize_factor=2, rgb_mean=None, rgb_std=None):
+    image = image.numpy().transpose((1, 2, 0))[:, :, ::-1]
 
     if rgb_mean is not None and rgb_std is not None:
-        image_1 = image_1 * rgb_std[::-1] + rgb_mean[::-1]
-        image_2 = image_2 * rgb_std[::-1] + rgb_mean[::-1]
+        image = image * rgb_std[::-1] + rgb_mean[::-1]
 
-    image = np.array(np.clip(np.hstack([image_1, image_2]), 0, 255), dtype=np.uint8)
-
-    mask_1 = mask_1.numpy().transpose((1, 2, 0))
-    mask_2 = mask_2.numpy().transpose((1, 2, 0))
-
-    mask = np.hstack([mask_1, mask_2])
-
-    change = change.numpy().transpose((1, 2, 0))
+    image = np.array(image, dtype=np.uint8)
+    mask = mask.numpy().transpose((1, 2, 0))
 
     dims = (image.shape[1] // resize_factor, image.shape[0] // resize_factor)
-    change_dims = (change.shape[1] // resize_factor, change.shape[0] // resize_factor)
 
     cv2.imshow('image', cv2.resize(image, dims))
     cv2.imshow('mask', cv2.resize(mask, dims))
-    cv2.imshow('change', cv2.resize(change, change_dims))
 
     return cv2.waitKey()
 
 
 if __name__ == '__main__':
-    rgb_mean = (120.63812214, 105.92798168,  77.53151193)
+    rgb_mean = (120.63812214, 105.92798168, 77.53151193)
     rgb_std = (60.0614334, 47.96735684, 44.21755486)
 
-    resize_factor = 2
+    resize_factor = 1
     transform = A.Compose([
         A.HorizontalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
         A.ShiftScaleRotate(scale_limit=(-0.1, 0.1))
-    ],
-        additional_targets={'image_2': 'image', 'mask_2': 'mask'})
+    ])
 
-    dataset = ChangeDetectionDataset(dataset_path='../change_detection_dataset/SN7_buildings/train',
-                                     masks_path='../change_detection_dataset/SN7_masks',
-                                     df_path='../change_detection_dataset/dataset_1/train.csv',
-                                     no_of_crops_per_combination=10,
-                                     training_mode=False,
-                                     crop_size=256,
-                                     return_masks=True,
-                                     shuffle=False,
-                                     transform=transform,
-                                     rgb_mean=rgb_mean,
-                                     rgb_std=rgb_std)
+    dataset = BuildingDetectionDataset(dataset_path='../change_detection_dataset/SN7_buildings/train',
+                                       masks_path='../change_detection_dataset/SN7_masks',
+                                       df_path='../change_detection_dataset/dataset_1/train.csv',
+                                       no_of_crops_per_combination=10,
+                                       training_mode=False,
+                                       crop_size=256,
+                                       shuffle=False,
+                                       transform=transform,
+                                       rgb_mean=rgb_mean,
+                                       rgb_std=rgb_std)
 
     for idx in tqdm(range(len(dataset))):
         ch = visualize_dataset(*dataset[idx], resize_factor=resize_factor, rgb_mean=rgb_mean, rgb_std=rgb_std)
