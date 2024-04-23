@@ -44,6 +44,8 @@ class BuildingDetectionConfig:
         cd_config['tensorboard_path'] = os.path.join(cd_config['output_path'], 'tensorboard')
         cd_config['no_of_batches_to_plot'] = int(self.config['config']['no_of_batches_to_plot'])
 
+        cd_config['image_resize'] = int(self.config['config']['image_resize'])
+
         # early stop
         cd_config['min_delta'] = float(self.config['config']['min_delta'])
         cd_config['patience'] = int(self.config['config']['patience'])

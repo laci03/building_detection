@@ -81,6 +81,7 @@ class BuildingDetectionTrain:
     def print_status(self):
         self.logger.info('Train batch size: {}'.format(self.config['batch_size']))
         self.logger.info('Validation batch size: {}'.format(self.config['valid_batch']))
+        self.logger.info('Image resize: {}'.format(self.config['image_resize']))
 
         self.logger.info('No of steps in training: {}'.format(len(self.train_dataloader)))
         self.logger.info('No of steps in validation: {}'.format(len(self.valid_dataloader)))
@@ -101,15 +102,19 @@ class BuildingDetectionTrain:
                                                  crop_size=self.config['crop_size'],
                                                  transform=transform,
                                                  rgb_mean=self.config['rgb_mean'],
-                                                 rgb_std=self.config['rgb_std'])
+                                                 rgb_std=self.config['rgb_std'],
+                                                 image_resize=self.config['image_resize'])
 
         valid_dataset = BuildingDetectionDataset(dataset_path=self.config['dataset_path'],
                                                  masks_path=self.config['masks_path'],
                                                  df_path=self.config['valid_df_path'],
-                                                 training_mode=False,
+                                                 training_mode=True,
+                                                 crop_size=256,
+                                                 no_of_crops_per_combination=16,
                                                  shuffle=True,
                                                  rgb_mean=self.config['rgb_mean'],
-                                                 rgb_std=self.config['rgb_std'])
+                                                 rgb_std=self.config['rgb_std'],
+                                                 image_resize=self.config['image_resize'])
 
         self.train_dataloader = DataLoader(train_dataset,
                                            batch_size=self.config['batch_size'],

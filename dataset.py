@@ -16,7 +16,7 @@ from torchvision.transforms import Resize, InterpolationMode
 class BuildingDetectionDataset(Dataset):
     def __init__(self, dataset_path, masks_path, df_path, no_of_crops_per_combination=1,
                  training_mode=True, crop_size=None, shuffle=False, transform=None,
-                 rgb_mean=None, rgb_std=None):
+                 rgb_mean=None, rgb_std=None, image_resize=1):
         self.dataset_path = Path(dataset_path)
         self.masks_path = Path(masks_path)
 
@@ -41,8 +41,8 @@ class BuildingDetectionDataset(Dataset):
 
         self.img_size = self.crop_size if self.training_mode else 1024
 
-        self.resize_img = Resize(size=self.img_size*2)
-        self.resize_mask = Resize(size=self.img_size*2, interpolation=InterpolationMode.NEAREST)
+        self.resize_img = Resize(size=self.img_size * image_resize)
+        self.resize_mask = Resize(size=self.img_size * image_resize, interpolation=InterpolationMode.NEAREST)
 
     def create_filelist(self):
         ds = []
@@ -50,7 +50,7 @@ class BuildingDetectionDataset(Dataset):
         for aoi_name in sorted(list(set(self.df['AOI_name']))):
             file_list = sorted(list(set(self.df[self.df['AOI_name'] == aoi_name]['filename'])))
             for file in file_list:
-                    ds.append((aoi_name, file))
+                ds.append((aoi_name, file))
 
         return ds
 
@@ -73,20 +73,17 @@ class BuildingDetectionDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.training_mode:
+            idx_of_crop = idx % self.no_of_crops_per_combination
             idx = idx // self.no_of_crops_per_combination
 
         aoi_name, file_name = self.file_list[idx]
 
         image, mask = self.get_image_and_mask(aoi_name, file_name)
 
-        if self.transform:
-            transformed = self.transform(image=image, mask=mask)
-
-            image, mask = transformed['image'], transformed['mask']
-
         if self.training_mode:  # crop from the initial image
-            x = np.random.randint(0, image.shape[0] - self.crop_size)
-            y = np.random.randint(0, image.shape[1] - self.crop_size)
+            sqrt_no_of_crops = int(self.no_of_crops_per_combination ** 0.5)
+            x = int(np.linspace(0, image.shape[0] - self.crop_size, sqrt_no_of_crops)[idx_of_crop // sqrt_no_of_crops])
+            y = int(np.linspace(0, image.shape[1] - self.crop_size, sqrt_no_of_crops)[idx_of_crop % sqrt_no_of_crops])
 
             image = image[x:x + self.crop_size, y:y + self.crop_size, :]
             mask = mask[x:x + self.crop_size, y:y + self.crop_size, :]
@@ -103,6 +100,11 @@ class BuildingDetectionDataset(Dataset):
             if pad_width or pad_height:
                 image = cv2.copyMakeBorder(image, 0, pad_height, 0, pad_width, cv2.BORDER_CONSTANT, value=(0, 0, 0))
                 mask = self.update_mask(mask, image.shape[:-1])
+
+        if self.transform:
+            transformed = self.transform(image=image, mask=mask)
+
+            image, mask = transformed['image'], transformed['mask']
 
         if self.rgb_mean is not None and self.rgb_std is not None:
             image = (image - self.rgb_mean) / self.rgb_std
@@ -143,6 +145,8 @@ def visualize_dataset(image, mask, resize_factor=2, rgb_mean=None, rgb_std=None)
 
 
 if __name__ == '__main__':
+    image_resize = 3
+
     rgb_mean = (120.63812214, 105.92798168, 77.53151193)
     rgb_std = (60.0614334, 47.96735684, 44.21755486)
 
@@ -155,14 +159,15 @@ if __name__ == '__main__':
 
     dataset = BuildingDetectionDataset(dataset_path='../change_detection_dataset/SN7_buildings/train',
                                        masks_path='../change_detection_dataset/SN7_masks',
-                                       df_path='../change_detection_dataset/dataset_1/train.csv',
-                                       no_of_crops_per_combination=10,
-                                       training_mode=False,
+                                       df_path='../change_detection_dataset/dataset_1/valid.csv',
+                                       no_of_crops_per_combination=25,
+                                       training_mode=True,
                                        crop_size=256,
                                        shuffle=False,
                                        transform=transform,
                                        rgb_mean=rgb_mean,
-                                       rgb_std=rgb_std)
+                                       rgb_std=rgb_std,
+                                       image_resize=image_resize)
 
     for idx in tqdm(range(len(dataset))):
         ch = visualize_dataset(*dataset[idx], resize_factor=resize_factor, rgb_mean=rgb_mean, rgb_std=rgb_std)
