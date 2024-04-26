@@ -13,6 +13,8 @@ class BuildingDetectionConfig:
         # training setup
         cd_config['output_path'] = self.config['config']['output_path']
 
+        cd_config['backbone'] = self.config['config']['backbone']
+
         cd_config['no_of_epochs'] = int(self.config['config']['no_of_epochs'])
 
         cd_config['batch_size'] = int(self.config['config']['batch_size'])

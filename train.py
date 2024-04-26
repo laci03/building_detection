@@ -134,7 +134,7 @@ class BuildingDetectionTrain:
 
     def init_model(self):
         self.model = smp.create_model(arch='unet', activation='sigmoid',
-                                      encoder_name='resnet50',
+                                      encoder_name=self.config['backbone'],
                                       in_channels=3)
 
         self.model.to(self.device)

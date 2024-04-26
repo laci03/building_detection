@@ -57,7 +57,7 @@ def run_inference(config):
 
     # load model
     model = smp.create_model(arch='unet', activation='sigmoid',
-                             encoder_name='resnet50',
+                             encoder_name=config['backbone'],
                              in_channels=3)
 
     checkpoint = torch.load(config['model_path'])
