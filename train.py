@@ -108,9 +108,7 @@ class BuildingDetectionTrain:
         valid_dataset = BuildingDetectionDataset(dataset_path=self.config['dataset_path'],
                                                  masks_path=self.config['masks_path'],
                                                  df_path=self.config['valid_df_path'],
-                                                 training_mode=True,
-                                                 crop_size=256,
-                                                 no_of_crops_per_combination=16,
+                                                 training_mode=False,
                                                  shuffle=True,
                                                  rgb_mean=self.config['rgb_mean'],
                                                  rgb_std=self.config['rgb_std'],
@@ -193,6 +191,7 @@ class BuildingDetectionTrain:
                                                                                             self.config['patience']))
                 break
 
+            torch.cuda.empty_cache()
             gc.collect()
 
         self.writer.flush()

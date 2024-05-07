@@ -73,7 +73,6 @@ class BuildingDetectionDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.training_mode:
-            idx_of_crop = idx % self.no_of_crops_per_combination
             idx = idx // self.no_of_crops_per_combination
 
         aoi_name, file_name = self.file_list[idx]
@@ -81,9 +80,12 @@ class BuildingDetectionDataset(Dataset):
         image, mask = self.get_image_and_mask(aoi_name, file_name)
 
         if self.training_mode:  # crop from the initial image
-            sqrt_no_of_crops = int(self.no_of_crops_per_combination ** 0.5)
-            x = int(np.linspace(0, image.shape[0] - self.crop_size, sqrt_no_of_crops)[idx_of_crop // sqrt_no_of_crops])
-            y = int(np.linspace(0, image.shape[1] - self.crop_size, sqrt_no_of_crops)[idx_of_crop % sqrt_no_of_crops])
+            while True:
+                y = np.random.randint(0, image.shape[1] - self.crop_size)
+                x = np.random.randint(0, image.shape[0] - self.crop_size)
+
+                if mask[x:x + self.crop_size, y:y + self.crop_size, :].sum():
+                    break
 
             image = image[x:x + self.crop_size, y:y + self.crop_size, :]
             mask = mask[x:x + self.crop_size, y:y + self.crop_size, :]
