@@ -10,9 +10,11 @@ import segmentation_models_pytorch as smp
 from pathlib import Path
 
 from dataset import BuildingDetectionDataset
-from visualizations import combine_masks
+from visualizations import combine_masks, plot_to_image, plot_confusion_matrix
 from config import BuildingDetectionConfig
 from tqdm import tqdm
+
+from evaluation import BuildingDetectionEvaluation
 
 
 def visualize_results(image, mask, pred, resize_factor=2, rgb_mean=(0, 0, 0),
@@ -44,6 +46,7 @@ def run_inference(config):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    bd_evaluation = BuildingDetectionEvaluation(device)
     # load data
     if config['input_path'].suffix == '.csv':
         inference_dataset = BuildingDetectionDataset(dataset_path=config['dataset_path'],
@@ -61,25 +64,43 @@ def run_inference(config):
                              in_channels=3)
 
     checkpoint = torch.load(config['model_path'])
-
+    print('Epoch: {}'.format(checkpoint['epoch']))
     model.load_state_dict(checkpoint['model'])
     model.to(device)
 
     with torch.no_grad():
         model.eval()
+        bd_evaluation.reset()
+
         for i, (image, mask) in tqdm(enumerate(iter(inference_dataset))):
             image = image.to(device)[None, :, :, :]
 
-            output = model(image)[0].cpu()
+            output = model(image)
 
             output_image_path = os.path.join(config['output_path'],
                                              '{}.png'.format('_'.join(inference_dataset.file_list[i])))
 
-            ch = visualize_results(image[0], mask, output, config['resize_factor'],
+            bd_evaluation.update(ground_truth=mask[None, :, :].to(device), prediction=output)
+
+            ch = visualize_results(image[0], mask, output[0].cpu(), config['resize_factor'],
                                    config['rgb_mean'], config['rgb_std'], output_image_path)
 
             if ch & 0xff == ord('q'):
                 return 1
+
+    lines = ['Recall: {}'.format(bd_evaluation.get_recall().cpu().numpy()),
+             'Precision: {}'.format(bd_evaluation.get_precision().cpu().numpy()),
+             'F1: {}'.format(bd_evaluation.get_f1().cpu().numpy()),
+             'Accuracy: {}'.format(bd_evaluation.get_accuracy().cpu().numpy()),
+             'Confusion matrix: {}'.format(bd_evaluation.get_confusion_matrix())
+    ]
+
+    print('\n'.join(lines))
+    with open(os.path.join(config['output_path'], 'metrics.txt'), 'w') as f:
+        f.write('\n'.join(lines))
+
+    cv2.imwrite(os.path.join(config['output_path'], 'confusion_matrix.png'),
+                plot_to_image(plot_confusion_matrix(bd_evaluation.get_confusion_matrix(), ['building', 'background'])))
 
 
 def parse_args():
@@ -90,12 +111,13 @@ def parse_args():
     parser.add_argument('--dataset_path', default='', type=Path)
     parser.add_argument('--masks_path', default='', type=Path)
 
-    parser.add_argument('--model_path', default='../building_detection_experiments/exp_004/best_f1',
+    parser.add_argument('--model_path', default='../building_detection_experiments/exp_012/best_f1',
                         type=Path)
     parser.add_argument('--resize_factor', default=1, type=int)
 
     parser.add_argument('--show_image', default=False, type=bool)
     parser.add_argument('--save_image', default=True, type=bool)
+    parser.add_argument('--evaluate', default=True, type=bool)
 
     return vars(parser.parse_args())
 
