@@ -14,6 +14,8 @@ from sacred import Experiment
 from sacred.utils import apply_backspaces_and_linefeeds
 from sacred.observers import FileStorageObserver
 
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -23,6 +25,26 @@ from dataset import BuildingDetectionDataset
 from evaluation import BuildingDetectionEvaluation
 
 from visualizations import combine_masks, plot_confusion_matrix, plot_to_image
+
+ALPHA = 0.8
+GAMMA = 2
+
+
+class FocalLoss(nn.Module):
+    def __init__(self):
+        super(FocalLoss, self).__init__()
+
+    def forward(self, inputs, targets, alpha=ALPHA, gamma=GAMMA):
+        # flatten label and prediction tensors
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        # first compute binary cross-entropy
+        BCE = F.binary_cross_entropy(inputs, targets, reduction='mean')
+        BCE_EXP = torch.exp(-BCE)
+        focal_loss = alpha * (1 - BCE_EXP) ** gamma * BCE
+
+        return focal_loss
 
 
 class BuildingDetectionTrain:
@@ -58,7 +80,8 @@ class BuildingDetectionTrain:
         self.init_model()
 
         # self.loss_fn = torch.nn.BCELoss()
-        self.loss_fn = DiceLoss(mode='binary', from_logits=False)
+        self.loss_fn = FocalLoss()
+        # self.loss_fn = DiceLoss(mode='binary', from_logits=False)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config['lr'])
         self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
 
@@ -124,7 +147,7 @@ class BuildingDetectionTrain:
                                            shuffle=False,
                                            num_workers=self.config['valid_workers'])
 
-        self.batches_to_plot = np.random.choice(range(len(self.valid_dataloader)),
+        self.batches_to_plot = np.random.choice(range(len(self.valid_dataloader) - 1),
                                                 self.config['no_of_batches_to_plot'],
                                                 replace=False)
 
@@ -133,7 +156,8 @@ class BuildingDetectionTrain:
     def init_model(self):
         self.model = smp.create_model(arch='unet', activation='sigmoid',
                                       encoder_name=self.config['backbone'],
-                                      in_channels=3)
+                                      in_channels=3,
+                                      decoder_attention_type='scse')
 
         self.model.to(self.device)
 
