@@ -38,11 +38,11 @@ aws s3 cp s3://spacenet-dataset/spacenet/SN7_buildings/tarballs/SN7_buildings_te
 1. (Optional) Create dataframe for test set with the following notebook: `./notebooks/create_public_test_df.ipynb`
 
 
-# Training code example
+# Training & Inference
 In order to be able to train, one should create the necessary environment, download and convert the data set to our format, both as explained above. Another requirement, prior to training, is to set up the correct paths in the config.ini file.
-```bash
-python train.py
-```
+
+Script for training: `train.py`
+Script for inference: `inference.py`
 
 # Additional files
 The used dataset split and our best experiments model & results can be found here: https://drive.google.com/file/d/142aCFIZ7EMuatwBxDcyC9Ec2kfhMyK7c/view?usp=sharing
