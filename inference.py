@@ -1,5 +1,6 @@
 import cv2
 import os
+import gc
 
 import torch
 import argparse
@@ -61,7 +62,8 @@ def run_inference(config):
     # load model
     model = smp.create_model(arch='unet', activation='sigmoid',
                              encoder_name=config['backbone'],
-                             in_channels=3)
+                             in_channels=3,
+                             decoder_attention_type='scse')
 
     checkpoint = torch.load(config['model_path'])
     print('Epoch: {}'.format(checkpoint['epoch']))
@@ -88,6 +90,10 @@ def run_inference(config):
             if ch & 0xff == ord('q'):
                 return 1
 
+            if i % 100 == 0:
+                torch.cuda.empty_cache()
+                gc.collect()
+
     lines = ['Recall: {}'.format(bd_evaluation.get_recall().cpu().numpy()),
              'Precision: {}'.format(bd_evaluation.get_precision().cpu().numpy()),
              'F1: {}'.format(bd_evaluation.get_f1().cpu().numpy()),
@@ -111,7 +117,7 @@ def parse_args():
     parser.add_argument('--dataset_path', default='', type=Path)
     parser.add_argument('--masks_path', default='', type=Path)
 
-    parser.add_argument('--model_path', default='../building_detection_experiments/exp_012/best_f1',
+    parser.add_argument('--model_path', default='../building_detection_experiments/exp_015/best_f1',
                         type=Path)
     parser.add_argument('--resize_factor', default=1, type=int)
 
