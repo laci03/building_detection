@@ -6,6 +6,8 @@ First create a conda environment and install the required libraries:
 ```bash
 conda create --name building_detection python=3.12.2
 
+conda activate building_detection
+
 pip3 install -r requirements.txt
 
 # install torch with cuda support. Change the cuda version accordingly to the local setup
