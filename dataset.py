@@ -62,7 +62,10 @@ class BuildingDetectionDataset(Dataset):
 
         image = r.transpose((1, 2, 0))[:, :, :-1]
 
-        mask = np.array(np.bool_(cv2.imread(str(mask_path), 0))[:, :, None], np.float32)
+        if mask_path.is_file():
+            mask = np.array(np.bool_(cv2.imread(str(mask_path), 0))[:, :, None], np.float32)
+        else:
+            mask = np.zeros(image.shape[:-1], dtype=np.float32)[:, :, None]
         return image, mask
 
     @staticmethod
@@ -147,7 +150,7 @@ def visualize_dataset(image, mask, resize_factor=2, rgb_mean=None, rgb_std=None)
 
 
 if __name__ == '__main__':
-    image_resize = 3
+    image_resize = 1
 
     rgb_mean = (120.63812214, 105.92798168, 77.53151193)
     rgb_std = (60.0614334, 47.96735684, 44.21755486)
@@ -160,8 +163,8 @@ if __name__ == '__main__':
     ])
 
     dataset = BuildingDetectionDataset(dataset_path='../change_detection_dataset/SN7_buildings/train',
-                                       masks_path='../change_detection_dataset/SN7_masks',
-                                       df_path='../change_detection_dataset/dataset_1/valid.csv',
+                                       masks_path='../building_detection_dataset/SN7_masks',
+                                       df_path='../building_detection_dataset/dataset_2/valid.csv',
                                        no_of_crops_per_combination=25,
                                        training_mode=True,
                                        crop_size=256,
