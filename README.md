@@ -39,7 +39,7 @@ aws s3 cp s3://spacenet-dataset/spacenet/SN7_buildings/tarballs/SN7_buildings_te
 
 
 # Training code example
-In order to be able to train, one should create the necessar environment, download and convert the data set to our format, both as explained above. Another requirement, prior to training, is to set up the correct paths in the config.ini file.
+In order to be able to train, one should create the necessary environment, download and convert the data set to our format, both as explained above. Another requirement, prior to training, is to set up the correct paths in the config.ini file.
 ```bash
 python train.py
 ```
