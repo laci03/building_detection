@@ -1,8 +1,5 @@
 shapely
 rasterio
-torch
-torchvision
-torchaudio
 scipy
 jupyterlab
 ipywidgets
@@ -13,3 +10,4 @@ tqdm
 tensorboard
 albumentations
 sacred
+segmentation-models-pytorch
