@@ -49,3 +49,5 @@ Script for inference: `inference.py`
 
 # Additional files
 The used dataset split and our best experiments model & results can be found here: https://drive.google.com/file/d/142aCFIZ7EMuatwBxDcyC9Ec2kfhMyK7c/view?usp=sharing
+
+Based on the developed project a master thesis was written and it can be found here: https://drive.google.com/file/d/1gszMMuBGP6cEtzoZDSNb1y6AVUyMR1ST/view?usp=sharing
